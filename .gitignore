@@ -1,0 +1,16 @@
+# 虚拟环境
+.venv/
+venv/
+
+# Python缓存
+__pycache__/
+*.pyc
+
+# 环境文件
+.env
+
+# IDE
+.vscode/
+
+# Mac系统
+.DS_Store
