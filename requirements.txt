@@ -4,3 +4,8 @@ uvicorn[standard]
 streamlit
 pandas
 pytest
+httpx
+transformers
+torch
+xgboost
+scikit-learn

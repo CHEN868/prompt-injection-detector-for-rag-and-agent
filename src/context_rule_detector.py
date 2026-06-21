@@ -90,6 +90,26 @@ def _unique(values: list[str]) -> list[str]:
     return unique_values
 
 
+def _deduplicate_rules(rules: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge duplicate attack types while preserving every evidence fragment."""
+    merged: dict[str, dict[str, Any]] = {}
+    order: list[str] = []
+    for rule in rules:
+        attack_type = str(rule.get("attack_type", ""))
+        if attack_type not in merged:
+            merged[attack_type] = {**rule, "evidence": list(rule.get("evidence", []))}
+            order.append(attack_type)
+            continue
+        merged[attack_type]["evidence"] = _unique(
+            [*merged[attack_type].get("evidence", []), *rule.get("evidence", [])]
+        )
+        merged[attack_type]["score"] = max(
+            int(merged[attack_type].get("score", 0)),
+            int(rule.get("score", 0)),
+        )
+    return [merged[attack_type] for attack_type in order]
+
+
 def _run_context_rules(text: str) -> list[dict[str, Any]]:
     matched_rules: list[dict[str, Any]] = []
     for rule in CONTEXT_RULES:
@@ -114,6 +134,7 @@ def detect_context_rules(text: str) -> dict[str, Any]:
     text_result = detect_text_rules(text)
     matched_rules = list(text_result.get("matched_rules", []))
     matched_rules.extend(_run_context_rules(text))
+    matched_rules = _deduplicate_rules(matched_rules)
 
     attack_types = _unique(
         [

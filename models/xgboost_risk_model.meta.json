@@ -1,0 +1,55 @@
+{
+  "feature_schema_version": "context-risk-v1",
+  "feature_names": [
+    "transformer_prob",
+    "rule_block",
+    "rule_score",
+    "matched_rule_count",
+    "has_instruction_override",
+    "has_system_prompt_leakage",
+    "has_tool_hijack",
+    "source_trust",
+    "permission_level_value",
+    "history_risk_count",
+    "is_external_source",
+    "is_tool_output",
+    "context_role__user_input",
+    "context_role__retrieved_doc",
+    "context_role__tool_output",
+    "context_role__tool_args",
+    "context_role__chat_history",
+    "scenario__chat",
+    "scenario__rag",
+    "scenario__agent",
+    "scenario__tool_call",
+    "scenario__multi_turn"
+  ],
+  "transformer_model_id": "Verm1ion/injection-sentry-xlmr",
+  "transformer_model_revision": "936bd6aeed82a583fd28e733184ab62e028715ea",
+  "training_data_sha256": "d142b89a66474476b21ccbb8b9796efcc7db3ad5bf75a7d43f075194d03bff86",
+  "created_at": "2026-06-21T17:19:46.457973+00:00",
+  "metrics": {
+    "validation": {
+      "samples": 60,
+      "accuracy": 0.9,
+      "precision": 0.8182,
+      "recall": 1.0,
+      "f1": 0.9,
+      "roc_auc": 0.9753
+    },
+    "test": {
+      "samples": 60,
+      "accuracy": 0.9,
+      "precision": 0.8182,
+      "recall": 1.0,
+      "f1": 0.9,
+      "roc_auc": 0.9169
+    }
+  },
+  "sample_counts": {
+    "train": 280,
+    "validation": 60,
+    "test": 60
+  },
+  "limitations": "Deterministic demo data; metrics are not production claims."
+}

@@ -135,10 +135,11 @@ class ChunkRiskResult(BaseModel):
     source_trust_penalty: int = 0
     #权限加分
     permission_bonus: int = 0
-    transformer_prob: float = Field(0.0, ge=0.0, le=1.0)
+    transformer_prob: float | None = Field(None, ge=0.0, le=1.0)
     transformer_model_status: str = "not_configured"
-    xgboost_prob: float = Field(0.0, ge=0.0, le=1.0)
-    risk_model_status: str = "fallback_rules"
+    xgboost_prob: float | None = Field(None, ge=0.0, le=1.0)
+    risk_model_status: str = "not_loaded"
+    decision_source: Literal["hard_rule", "xgboost", "aggregate"] = "xgboost"
     matched_rules: list[MatchedRule] = Field(default_factory=list)
     tool_name: str | None = None
     permission_level: PermissionLevel | None = None
@@ -165,6 +166,7 @@ class ContextRiskResult(BaseModel):
     safe_chunks: list[str] = Field(default_factory=list)
     blocked_chunks: list[str] = Field(default_factory=list)
     request_id: str | None = None
+    decision_source: Literal["hard_rule", "aggregate"] = "aggregate"
 
 
 class DemoContextCase(BaseModel):
@@ -174,6 +176,35 @@ class DemoContextCase(BaseModel):
     name: str
     description: str
     request: ContextScanRequest
+
+
+class ChunkScanRequest(BaseModel):
+    """API request for scanning one RAG or Agent context chunk."""
+
+    scenario: Scenario = "rag"
+    context_role: ContextRole = "retrieved_doc"
+    content: str = Field(..., min_length=1)
+    chunk_id: str = "chunk:0"
+    source: str = "unknown"
+    source_trust: float = Field(0.5, ge=0.0, le=1.0)
+    permission_level: PermissionLevel = "none"
+    tool_name: str | None = None
+    history_risk_count: int = Field(0, ge=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    def to_context_chunk(self) -> ContextChunk:
+        return ContextChunk(
+            chunk_id=self.chunk_id,
+            scenario=self.scenario,
+            context_role=self.context_role,
+            content=self.content,
+            source=self.source,
+            source_trust=self.source_trust,
+            permission_level=self.permission_level,
+            tool_name=self.tool_name,
+            history_risk_count=self.history_risk_count,
+            metadata=self.metadata,
+        )
 
 
 """

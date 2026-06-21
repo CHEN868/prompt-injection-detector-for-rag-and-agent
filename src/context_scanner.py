@@ -115,10 +115,10 @@ def flatten_context_request(request: ContextScanRequest) -> list[ContextChunk]:
     return chunks
 
 
-def scan_context(request: ContextScanRequest) -> ContextRiskResult:
+def scan_context(request: ContextScanRequest, runtime=None) -> ContextRiskResult:
     """Scan a structured RAG/Agent context and return aggregate risk."""
     chunks = flatten_context_request(request)
-    chunk_results = [analyze_chunk(chunk) for chunk in chunks]
+    chunk_results = [analyze_chunk(chunk, runtime=runtime) for chunk in chunks]
     return aggregate_context_risk(
         chunk_results=chunk_results,
         request_id=request.request_id,

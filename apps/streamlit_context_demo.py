@@ -46,6 +46,7 @@ def render_result(result) -> None:
                 "chunk_id": chunk.chunk_id,
                 "role": chunk.context_role,
                 "decision": chunk.decision,
+                "decision_source": chunk.decision_source,
                 "probability": chunk.final_risk_probability,
                 "rule_block": chunk.rule_block,
                 "rule_score": chunk.rule_score,
@@ -73,6 +74,7 @@ def render_result(result) -> None:
                     "transformer_model_status": chunk.transformer_model_status,
                     "xgboost_prob": chunk.xgboost_prob,
                     "risk_model_status": chunk.risk_model_status,
+                    "decision_source": chunk.decision_source,
                 }
             )
 
