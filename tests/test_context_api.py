@@ -20,15 +20,30 @@ def test_versioned_context_and_chunk_endpoints(model_runtime):
             },
         )
         assert chunk.status_code == 200
-        assert chunk.json()["transformer_prob"] > 0
-        assert chunk.json()["decision_source"] == "xgboost"
+        chunk_payload = chunk.json()
+        assert set(chunk_payload) == {
+            "rule_block",
+            "rule_score",
+            "transformer_prob",
+            "context_risk_score",
+            "final_risk_probability",
+            "decision",
+            "explanation",
+        }
+        assert chunk_payload["transformer_prob"] > 0
+        assert chunk_payload["context_risk_score"] > 0
+        assert set(chunk_payload["explanation"]) == {
+            "rule_signal",
+            "semantic_signal",
+            "context_signal",
+        }
 
         context = client.post(
             "/v1/scan/context",
             json={"scenario": "rag", "user_input": "请总结这份正常文档。"},
         )
         assert context.status_code == 200
-        assert context.json()["final_decision"] == "ALLOW"
+        assert context.json()["decision"] == "ALLOW"
 
 
 def test_scan_returns_503_when_models_are_not_ready():

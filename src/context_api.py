@@ -13,6 +13,7 @@ from .context_models import (
     ContextRiskResult,
     ContextScanRequest,
     DemoContextCase,
+    RiskAssessment,
 )
 from .context_risk_analyzer import analyze_chunk
 from .context_scanner import scan_context
@@ -80,7 +81,7 @@ def create_app(runtime_loader: RuntimeLoader | None = None) -> FastAPI:
     def scan_context_endpoint(request_body: ContextScanRequest, request: Request) -> ContextRiskResult:
         return scan_context(request_body, runtime=ready_runtime(request))
 
-    @application.post("/v1/scan/chunk", response_model=ChunkRiskResult)
+    @application.post("/v1/scan/chunk", response_model=RiskAssessment)
     def scan_chunk_endpoint(request_body: ChunkScanRequest, request: Request) -> ChunkRiskResult:
         return analyze_chunk(request_body.to_context_chunk(), runtime=ready_runtime(request))
 

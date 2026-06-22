@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,6 +13,7 @@ DEFAULT_MODEL_ID = "Verm1ion/injection-sentry-xlmr"
 DEFAULT_MODEL_REVISION = "936bd6aeed82a583fd28e733184ab62e028715ea"
 DEFAULT_MAX_LENGTH = 512
 DEFAULT_STRIDE = 128
+LOGGER = logging.getLogger(__name__)
 
 
 class TransformerLoadError(RuntimeError):
@@ -106,9 +108,13 @@ class TransformerPredictor:
         return self._window_probabilities(values)
 
     def predict_proba(self, text: str) -> float:
+        print("Running Transformer predict_proba")
+        LOGGER.debug("Running Transformer predict_proba")
         return self.predict_many([text])[0]
 
     def predict_chunk(self, chunk: Any) -> TransformerPrediction:
+        print("Running Transformer predict_chunk")
+        LOGGER.debug("Running Transformer predict_chunk")
         return TransformerPrediction(
             transformer_prob=self.predict_proba(chunk.content),
             model_status=self.model_status,
@@ -162,8 +168,10 @@ def load_model(
 
 
 def predict_proba(text: str, predictor: TransformerPredictor) -> float:
+    LOGGER.debug("Running Transformer predict_proba")
     return predictor.predict_proba(text)
 
 
 def predict_chunk(chunk: Any, predictor: TransformerPredictor) -> TransformerPrediction:
+    LOGGER.debug("Running Transformer predict_chunk")
     return predictor.predict_chunk(chunk)

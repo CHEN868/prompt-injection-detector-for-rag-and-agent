@@ -8,7 +8,8 @@ from pathlib import Path
 
 from .context_feature_builder import FEATURE_NAMES, build_chunk_features, features_for_csv
 from .context_models import ContextChunk
-from .context_rule_detector import detect_context_rules
+from .context_risk_aggregator import ContextRiskAggregator, context_input_from_chunk
+from .context_rule_detector import detect_rule_signal
 from .transformer_predictor import TransformerPredictor, load_model
 
 
@@ -39,14 +40,19 @@ def build_features(
     active_predictor = predictor or load_model(local_files_only=True)
     probabilities = active_predictor.predict_many(chunk.content for chunk in chunks)
 
+    aggregator = ContextRiskAggregator()
     rows = []
     for row, chunk, transformer_prob in zip(source_rows, chunks, probabilities, strict=True):
-        rule_result = detect_context_rules(chunk.content)
+        rule_signal = detect_rule_signal(chunk.content)
+        context_input = context_input_from_chunk(chunk)
+        context_risk_score = aggregator.aggregate(context_input)
         features = features_for_csv(
             build_chunk_features(
-                chunk=chunk,
-                rule_result=rule_result,
                 transformer_prob=transformer_prob,
+                rule_score=float(rule_signal["rule_score"]),
+                context_risk_score=context_risk_score,
+                source_trust=chunk.source_trust,
+                permission_level=chunk.permission_level,
             )
         )
         rows.append(

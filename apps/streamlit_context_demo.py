@@ -32,10 +32,10 @@ def chunk_text(text: str, chunk_size: int = 500) -> list[str]:
 
 def render_result(result) -> None:
     cols = st.columns(5)
-    cols[0].metric("Decision", result.final_decision)
-    cols[1].metric("Risk level", result.risk_level)
-    cols[2].metric("Probability", f"{result.final_risk_probability:.2f}")
-    cols[3].metric("Risk score", result.final_risk_score)
+    cols[0].metric("Decision", result.decision)
+    cols[1].metric("Probability", f"{result.final_risk_probability:.2f}")
+    cols[2].metric("Rule score", f"{result.rule_score:.2f}")
+    cols[3].metric("Transformer", f"{result.transformer_prob:.2f}")
     cols[4].metric("Risky chunks", result.risky_chunk_count)
 
     st.write(result.summary)
@@ -46,37 +46,18 @@ def render_result(result) -> None:
                 "chunk_id": chunk.chunk_id,
                 "role": chunk.context_role,
                 "decision": chunk.decision,
-                "decision_source": chunk.decision_source,
                 "probability": chunk.final_risk_probability,
                 "rule_block": chunk.rule_block,
                 "rule_score": chunk.rule_score,
-                "attack_types": ", ".join(chunk.attack_types),
-                "evidence": ", ".join(chunk.evidence[:3]),
-                "model_status": f"{chunk.transformer_model_status}/{chunk.risk_model_status}",
+                "transformer_prob": chunk.transformer_prob,
+                "context_risk_score": chunk.context_risk_score,
             }
         )
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     for chunk in result.chunk_results:
         with st.expander(f"{chunk.chunk_id} | {chunk.decision} | p={chunk.final_risk_probability:.2f}"):
-            st.write(chunk.reason)
-            st.json(
-                {
-                    "context_role": chunk.context_role,
-                    "source": chunk.source,
-                    "source_trust": chunk.source_trust,
-                    "permission_level": chunk.permission_level,
-                    "rule_block": chunk.rule_block,
-                    "rule_score": chunk.rule_score,
-                    "attack_types": chunk.attack_types,
-                    "evidence": chunk.evidence,
-                    "transformer_prob": chunk.transformer_prob,
-                    "transformer_model_status": chunk.transformer_model_status,
-                    "xgboost_prob": chunk.xgboost_prob,
-                    "risk_model_status": chunk.risk_model_status,
-                    "decision_source": chunk.decision_source,
-                }
-            )
+            st.json(model_to_dict(chunk))
 
 
 st.set_page_config(page_title="RAG / Agent Context Security Demo", layout="wide")
@@ -121,7 +102,7 @@ with rag_tab:
         )
         result = scan_context(request)
         render_result(result)
-        if result.blocked_chunks:
+        if any(chunk.decision == "BLOCK" for chunk in result.chunk_results):
             st.warning("发现高风险文档 chunk，不应进入最终 prompt。")
         else:
             st.success("未发现阻断级风险，可使用 safe chunks 继续构造 prompt。")

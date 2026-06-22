@@ -29,10 +29,10 @@ def parse_request_json(raw_json: str) -> ContextScanRequest:
 def render_summary(result) -> None:
     """Render the final context-level decision."""
     cols = st.columns(5)
-    cols[0].metric("Final decision", result.final_decision)
-    cols[1].metric("Risk level", result.risk_level)
-    cols[2].metric("Risk score", result.final_risk_score)
-    cols[3].metric("Risk probability", f"{result.final_risk_probability:.2f}")
+    cols[0].metric("Final decision", result.decision)
+    cols[1].metric("Risk probability", f"{result.final_risk_probability:.2f}")
+    cols[2].metric("Rule score", f"{result.rule_score:.2f}")
+    cols[3].metric("Transformer", f"{result.transformer_prob:.2f}")
     cols[4].metric("Risky chunks", result.risky_chunk_count)
 
     st.write(result.summary)
@@ -51,15 +51,12 @@ def render_chunk_table(result) -> None:
                 "chunk_id": chunk.chunk_id,
                 "role": chunk.context_role,
                 "source": chunk.source,
-                "trust": chunk.source_trust,
                 "decision": chunk.decision,
-                "decision_source": chunk.decision_source,
-                "risk_level": chunk.risk_level,
-                "risk_score": chunk.risk_score,
                 "risk_probability": chunk.final_risk_probability,
                 "rule_block": chunk.rule_block,
-                "attack_types": ", ".join(chunk.attack_types),
-                "evidence": ", ".join(chunk.evidence[:3]),
+                "rule_score": chunk.rule_score,
+                "transformer_prob": chunk.transformer_prob,
+                "context_risk_score": chunk.context_risk_score,
             }
         )
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
@@ -68,32 +65,9 @@ def render_chunk_table(result) -> None:
 def render_chunk_details(result) -> None:
     """Render chunk-level explanations."""
     for chunk in result.chunk_results:
-        title = f"{chunk.chunk_id} | {chunk.decision} | score={chunk.risk_score}"
+        title = f"{chunk.chunk_id} | {chunk.decision} | p={chunk.final_risk_probability:.2f}"
         with st.expander(title, expanded=chunk.decision != "ALLOW"):
-            st.write(chunk.reason)
-            st.json(
-                {
-                    "context_role": chunk.context_role,
-                    "source": chunk.source,
-                    "source_trust": chunk.source_trust,
-                    "attack_types": chunk.attack_types,
-                    "evidence": chunk.evidence,
-                    "rule_block": chunk.rule_block,
-                    "rule_score": chunk.rule_score,
-                    "matched_rule_count": chunk.matched_rule_count,
-                    "transformer_prob": chunk.transformer_prob,
-                    "transformer_model_status": chunk.transformer_model_status,
-                    "xgboost_prob": chunk.xgboost_prob,
-                    "risk_model_status": chunk.risk_model_status,
-                    "decision_source": chunk.decision_source,
-                    "base_score": chunk.base_score,
-                    "context_bonus": chunk.context_bonus,
-                    "source_trust_penalty": chunk.source_trust_penalty,
-                    "permission_bonus": chunk.permission_bonus,
-                    "tool_name": chunk.tool_name,
-                    "permission_level": chunk.permission_level,
-                }
-            )
+            st.json(model_to_dict(chunk))
 
 
 st.set_page_config(

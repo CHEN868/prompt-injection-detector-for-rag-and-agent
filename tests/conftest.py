@@ -15,7 +15,16 @@ class FakeTransformer:
 
     def predict_chunk(self, chunk):
         lowered = chunk.content.lower()
-        probability = 0.86 if "obsolete" in lowered or "concealed setup" in lowered else 0.05
+        risky_markers = (
+            "obsolete",
+            "concealed setup",
+            "忽略之前",
+            "send_email",
+            "api key",
+            "attacker@example.com",
+            "隐藏提示词",
+        )
+        probability = 0.9 if any(marker in lowered for marker in risky_markers) else 0.05
         return TransformerPrediction(probability, self.model_status, self.model_name_or_path)
 
 
@@ -24,10 +33,18 @@ class FakeRiskModel:
     metadata = {"feature_schema_version": FEATURE_SCHEMA_VERSION, "metrics": {}}
 
     def predict_proba(self, features):
-        probability = float(features["transformer_prob"])
-        if features["is_external_source"]:
-            probability += 0.04
-        return min(1.0, probability)
+        assert set(features) == {
+            "transformer_prob",
+            "rule_score",
+            "context_risk_score",
+            "source_trust_encoded",
+            "permission_level_encoded",
+        }
+        return min(
+            1.0,
+            float(features["transformer_prob"]) * 0.8
+            + float(features["context_risk_score"]) * 0.2,
+        )
 
 
 @pytest.fixture

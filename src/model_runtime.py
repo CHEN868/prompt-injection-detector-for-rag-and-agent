@@ -32,6 +32,8 @@ class ModelRuntime:
                 "status": self.risk_model.model_status,
                 "feature_schema_version": self.risk_model.metadata["feature_schema_version"],
                 "metrics": self.risk_model.metadata.get("metrics", {}),
+                "feature_importance": self.risk_model.metadata.get("feature_importance", {}),
+                "high_correlations": self.risk_model.metadata.get("high_correlations", []),
             },
         }
 

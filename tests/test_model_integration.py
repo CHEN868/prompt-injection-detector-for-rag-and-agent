@@ -31,7 +31,6 @@ def test_real_transformer_and_xgboost_are_connected():
     )
 
     assert result.rule_block is False
-    assert result.transformer_model_status == "transformer_loaded"
-    assert result.risk_model_status == "xgboost_loaded"
-    assert result.transformer_prob is not None and result.transformer_prob > 0
-    assert result.xgboost_prob is not None
+    assert result.transformer_prob > 0
+    assert result.context_risk_score > 0
+    assert result.final_risk_probability > 0

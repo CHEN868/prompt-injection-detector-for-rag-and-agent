@@ -190,3 +190,12 @@ def detect_context_rules(text: str) -> dict[str, Any]:
             or any(rule.get("attack_type") == "benign_security_discussion" for rule in matched_rules)
         ),
     }
+
+
+def detect_rule_signal(text: str) -> dict[str, bool | float]:
+    """Public Rule Layer contract: expose only block and normalized score."""
+    audit_result = detect_context_rules(text)
+    return {
+        "rule_block": bool(audit_result["rule_block"]),
+        "rule_score": min(1.0, max(0.0, float(audit_result["rule_score"]) / 100.0)),
+    }

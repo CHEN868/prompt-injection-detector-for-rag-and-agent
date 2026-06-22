@@ -11,7 +11,7 @@ Scenario = Literal["chat", "rag", "agent", "tool_call", "multi_turn"]
 # 权限级别
 PermissionLevel = Literal["none", "low", "medium", "high", "critical"]
 # 决策
-Decision = Literal["ALLOW", "REVIEW", "BLOCK"]
+Decision = Literal["ALLOW", "WARN", "BLOCK"]
 # 风险级别
 RiskLevel = Literal["SAFE", "LOW", "MEDIUM", "HIGH", "CRITICAL"]
 
@@ -109,51 +109,35 @@ class MatchedRule(BaseModel):
     evidence: list[str] = Field(default_factory=list)
 
 # 单个chunk的风险监测结果
-class ChunkRiskResult(BaseModel):
-    """Risk result for one context chunk."""
+class SignalExplanation(BaseModel):
+    rule_signal: str
+    semantic_signal: str
+    context_signal: str
+
+
+class RiskAssessment(BaseModel):
+    """Uniform V3 risk output shared by chunk and request results."""
+
+    rule_block: bool
+    rule_score: float = Field(..., ge=0.0, le=1.0)
+    transformer_prob: float = Field(..., ge=0.0, le=1.0)
+    context_risk_score: float = Field(..., ge=0.0, le=1.0)
+    final_risk_probability: float = Field(..., ge=0.0, le=1.0)
+    decision: Decision
+    explanation: SignalExplanation
+
+
+class ChunkRiskResult(RiskAssessment):
+    """Uniform assessment plus the minimum chunk identity needed for RAG audits."""
 
     chunk_id: str
     context_role: ContextRole
     source: str
-    source_trust: float
-    risk_score: int
-    final_risk_probability: float = Field(0.0, ge=0.0, le=1.0)
-    risk_level: RiskLevel
-    decision: Decision
-    rule_block: bool = False
-    rule_score: int = 0
-    matched_rule_count: int = 0
-    attack_types: list[str] = Field(default_factory=list)
-    evidence: list[str] = Field(default_factory=list)
-    #原因
-    reason: str
-    #基础分
-    base_score: int = 0
-    #上下文加分
-    context_bonus: int = 0
-    #源信任度惩罚
-    source_trust_penalty: int = 0
-    #权限加分
-    permission_bonus: int = 0
-    transformer_prob: float | None = Field(None, ge=0.0, le=1.0)
-    transformer_model_status: str = "not_configured"
-    xgboost_prob: float | None = Field(None, ge=0.0, le=1.0)
-    risk_model_status: str = "not_loaded"
-    decision_source: Literal["hard_rule", "xgboost", "aggregate"] = "xgboost"
-    matched_rules: list[MatchedRule] = Field(default_factory=list)
-    tool_name: str | None = None
-    permission_level: PermissionLevel | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
 
 # 一次完整请求的最终风险结果
-class ContextRiskResult(BaseModel):
+class ContextRiskResult(RiskAssessment):
     """Aggregated context-level risk result."""
 
-    final_decision: Decision
-    final_risk_score: int
-    final_risk_probability: float = Field(0.0, ge=0.0, le=1.0)
-    risk_level: RiskLevel
-    #总结
     summary: str
     #主要风险chunk ID
     primary_risk_chunk_id: str | None = None
@@ -163,10 +147,7 @@ class ContextRiskResult(BaseModel):
     #有风险的chunk数
     risky_chunk_count: int = 0
     chunk_results: list[ChunkRiskResult] = Field(default_factory=list)
-    safe_chunks: list[str] = Field(default_factory=list)
-    blocked_chunks: list[str] = Field(default_factory=list)
     request_id: str | None = None
-    decision_source: Literal["hard_rule", "aggregate"] = "aggregate"
 
 
 class DemoContextCase(BaseModel):

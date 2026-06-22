@@ -1,223 +1,75 @@
-"""Context-aware chunk analysis and request-level risk aggregation."""
+"""V3 orchestration: independent rule, semantic, context, and fusion layers."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from .context_feature_builder import build_chunk_features
-from .context_models import ChunkRiskResult, ContextChunk, ContextRiskResult, MatchedRule
-from .context_rule_detector import detect_context_rules
+from .context_models import ChunkRiskResult, ContextChunk, ContextRiskResult, SignalExplanation
+from .context_risk_aggregator import ContextRiskAggregator, context_input_from_chunk
+from .context_rule_detector import detect_rule_signal
 from .decision_engine import decide_risk
 from .model_runtime import get_runtime
 
 
-HARMFUL_ATTACK_TYPES = {
-    "instruction_override",
-    "system_prompt_leakage",
-    "jailbreak_roleplay",
-    "policy_bypass",
-    "forced_compliance",
-    "sensitive_info_request",
-    "obfuscated_instruction",
-    "tool_call_hijacking",
-    "indirect_prompt_injection",
-    "semantic_prompt_injection",
-}
-
-ROLE_NAMES = {
-    "user_input": "用户输入",
-    "retrieved_doc": "检索文档",
-    "tool_output": "工具返回内容",
-    "tool_args": "工具调用参数",
-    "chat_history": "历史对话",
-}
-
-ATTACK_NAMES = {
-    "instruction_override": "指令覆盖",
-    "system_prompt_leakage": "系统提示词泄露",
-    "jailbreak_roleplay": "角色扮演越狱",
-    "policy_bypass": "安全策略绕过",
-    "forced_compliance": "强制服从",
-    "sensitive_info_request": "敏感信息请求",
-    "obfuscated_instruction": "混淆或编码指令",
-    "tool_call_hijacking": "工具调用劫持",
-    "indirect_prompt_injection": "间接 Prompt Injection",
-    "semantic_prompt_injection": "语义 Prompt Injection",
-}
+CONTEXT_AGGREGATOR = ContextRiskAggregator()
 
 
-def _unique(values: list[str]) -> list[str]:
-    return list(dict.fromkeys(values))
+def _rule_explanation(rule_block: bool, rule_score: float) -> str:
+    if rule_block:
+        return f"高置信硬规则命中，rule_score={rule_score:.3f}，规则层直接要求 BLOCK。"
+    return f"未触发规则硬阻断，rule_score={rule_score:.3f}。"
 
 
-def _rules_to_models(rule_result: dict[str, Any]) -> list[MatchedRule]:
-    return [
-        MatchedRule(
-            attack_type=str(rule.get("attack_type", "")),
-            name=str(rule.get("name", "")),
-            score=int(rule.get("score", 0)),
-            severity=str(rule.get("severity", "medium")),
-            evidence=[str(item) for item in rule.get("evidence", [])],
-        )
-        for rule in rule_result.get("matched_rules", [])
-    ]
-
-
-def _should_mark_indirect(chunk: ContextChunk, attack_types: list[str]) -> bool:
-    if chunk.context_role not in {"retrieved_doc", "tool_output"}:
-        return False
-    return bool(
-        {
-            "instruction_override",
-            "system_prompt_leakage",
-            "policy_bypass",
-            "forced_compliance",
-            "tool_call_hijacking",
-        }
-        & set(attack_types)
-    )
-
-
-def _role_bonus(chunk: ContextChunk, attack_types: list[str]) -> int:
-    if not HARMFUL_ATTACK_TYPES & set(attack_types):
-        return 0
-    if chunk.context_role == "retrieved_doc":
-        return 25 if {"instruction_override", "system_prompt_leakage"} & set(attack_types) else 15
-    if chunk.context_role in {"tool_output", "tool_args"}:
-        return 35 if "tool_call_hijacking" in attack_types else 20
-    if chunk.context_role == "chat_history":
-        return 5
-    return 0
-
-
-def _trust_penalty(chunk: ContextChunk, has_risk: bool) -> int:
-    if not has_risk:
-        return 0
-    if chunk.source_trust < 0.3:
-        return 15
-    if chunk.source_trust < 0.6:
-        return 8
-    return 0
-
-
-def _permission_bonus(chunk: ContextChunk, attack_types: list[str]) -> int:
-    if chunk.context_role not in {"tool_output", "tool_args"} or not attack_types:
-        return 0
-    score = {"none": 0, "low": 0, "medium": 8, "high": 16, "critical": 25}.get(
-        chunk.permission_level or "none", 0
-    )
-    if "tool_call_hijacking" in attack_types:
-        score += 20
-    if "sensitive_info_request" in attack_types:
-        score += 10
-    return score
-
-
-def _build_reason(
-    chunk: ContextChunk,
-    attack_types: list[str],
-    evidence: list[str],
-    decision: str,
-    decision_source: str,
-    transformer_prob: float | None,
-    xgboost_prob: float | None,
-) -> str:
-    role_name = ROLE_NAMES.get(chunk.context_role, chunk.context_role)
-    if decision_source == "hard_rule":
-        names = "、".join(ATTACK_NAMES.get(item, item) for item in attack_types)
-        evidence_text = "、".join(evidence[:3]) or "无明确片段"
-        return f"{role_name}命中高危硬规则（{names}），证据：{evidence_text}，直接 BLOCK。"
-    if not attack_types and decision == "ALLOW":
-        return (
-            f"{role_name}未命中高危规则；Transformer={transformer_prob:.3f}，"
-            f"XGBoost={xgboost_prob:.3f}，最终允许。"
-        )
-    names = "、".join(ATTACK_NAMES.get(item, item) for item in attack_types) or "语义风险"
-    return (
-        f"{role_name}检测到{names}；Transformer={transformer_prob:.3f}，"
-        f"XGBoost={xgboost_prob:.3f}，决策为 {decision}。"
-    )
+def _semantic_explanation(transformer_prob: float) -> str:
+    if transformer_prob >= 0.75:
+        level = "高"
+    elif transformer_prob >= 0.45:
+        level = "中"
+    else:
+        level = "低"
+    return f"Transformer 语义注入概率为 {transformer_prob:.3f}，语义风险为{level}。"
 
 
 def analyze_chunk(chunk: ContextChunk, runtime: Any | None = None) -> ChunkRiskResult:
-    """Run rule-first detection, then semantic and XGBoost fusion when needed."""
-    rule_result = detect_context_rules(chunk.content)
-    matched_rules = _rules_to_models(rule_result)
-    attack_types = _unique(list(rule_result.get("attack_types", [])))
-    if _should_mark_indirect(chunk, attack_types):
-        attack_types.insert(0, "indirect_prompt_injection")
-    evidence = _unique([str(item) for item in rule_result.get("evidence", [])])
+    """Run four isolated layers and return the uniform V3 signal envelope."""
+    active_runtime = runtime or get_runtime()
 
-    base_score = int(rule_result.get("rule_score", 0))
-    has_risk = bool(HARMFUL_ATTACK_TYPES & set(attack_types))
-    role_bonus = _role_bonus(chunk, attack_types)
-    trust_penalty = _trust_penalty(chunk, has_risk)
-    permission_bonus = _permission_bonus(chunk, attack_types)
-    context_bonus = role_bonus + trust_penalty + permission_bonus
+    rule_signal = detect_rule_signal(chunk.content)
+    rule_block = bool(rule_signal["rule_block"])
+    rule_score = float(rule_signal["rule_score"])
 
-    if bool(rule_result.get("rule_block", False)):
-        probability = max(0.95, min(1.0, (base_score + context_bonus) / 100.0))
-        state = decide_risk(probability, rule_block=True)
-        transformer_prob = None
-        xgboost_prob = None
-        transformer_status = "skipped_rule_block"
-        risk_model_status = "skipped_rule_block"
-        decision_source = "hard_rule"
-    else:
-        active_runtime = runtime or get_runtime()
-        transformer_prediction = active_runtime.transformer.predict_chunk(chunk)
-        transformer_prob = transformer_prediction.transformer_prob
-        features = build_chunk_features(
-            chunk=chunk,
-            rule_result=rule_result,
-            transformer_prob=transformer_prob,
-            attack_types=attack_types,
-        )
-        xgboost_prob = active_runtime.risk_model.predict_proba(features)
-        state = decide_risk(xgboost_prob)
-        transformer_status = transformer_prediction.model_status
-        risk_model_status = active_runtime.risk_model.model_status
-        decision_source = "xgboost"
+    transformer_prediction = active_runtime.transformer.predict_chunk(chunk)
+    transformer_prob = float(transformer_prediction.transformer_prob)
 
-    decision = str(state["decision"])
-    if decision_source == "xgboost" and decision != "ALLOW" and not attack_types:
-        attack_types.append("semantic_prompt_injection")
+    context_input = context_input_from_chunk(chunk)
+    context_risk_score = CONTEXT_AGGREGATOR.aggregate(context_input)
+
+    features = build_chunk_features(
+        transformer_prob=transformer_prob,
+        rule_score=rule_score,
+        context_risk_score=context_risk_score,
+        source_trust=chunk.source_trust,
+        permission_level=chunk.permission_level,
+    )
+    final_probability = active_runtime.risk_model.predict_proba(features)
+    state = decide_risk(final_probability, rule_block=rule_block)
+
     return ChunkRiskResult(
         chunk_id=chunk.chunk_id,
         context_role=chunk.context_role,
         source=chunk.source,
-        source_trust=chunk.source_trust,
-        risk_score=int(state["risk_score"]),
-        final_risk_probability=float(state["risk_probability"]),
-        risk_level=str(state["risk_level"]),
-        decision=decision,
-        rule_block=bool(rule_result.get("rule_block", False)),
-        rule_score=base_score,
-        matched_rule_count=int(rule_result.get("matched_rule_count", len(matched_rules))),
-        attack_types=attack_types,
-        evidence=evidence,
-        reason=_build_reason(
-            chunk,
-            attack_types,
-            evidence,
-            decision,
-            decision_source,
-            transformer_prob,
-            xgboost_prob,
-        ),
-        base_score=base_score,
-        context_bonus=context_bonus,
-        source_trust_penalty=trust_penalty,
-        permission_bonus=permission_bonus,
+        rule_block=rule_block,
+        rule_score=rule_score,
         transformer_prob=transformer_prob,
-        transformer_model_status=transformer_status,
-        xgboost_prob=xgboost_prob,
-        risk_model_status=risk_model_status,
-        decision_source=decision_source,
-        matched_rules=matched_rules,
-        tool_name=chunk.tool_name,
-        permission_level=chunk.permission_level,
-        metadata=chunk.metadata,
+        context_risk_score=context_risk_score,
+        final_risk_probability=float(state["risk_probability"]),
+        decision=str(state["decision"]),
+        explanation=SignalExplanation(
+            rule_signal=_rule_explanation(rule_block, rule_score),
+            semantic_signal=_semantic_explanation(transformer_prob),
+            context_signal=CONTEXT_AGGREGATOR.explain(context_input, context_risk_score),
+        ),
     )
 
 
@@ -225,45 +77,70 @@ def aggregate_context_risk(
     chunk_results: list[ChunkRiskResult],
     request_id: str | None = None,
 ) -> ContextRiskResult:
-    """Use the highest-risk chunk and preserve hard-rule precedence."""
+    """Aggregate chunks without creating new model features or policy bonuses."""
     if not chunk_results:
+        explanation = SignalExplanation(
+            rule_signal="没有可扫描片段，规则信号为 0。",
+            semantic_signal="没有可扫描片段，语义信号为 0。",
+            context_signal="没有可扫描片段，上下文信号为 0。",
+        )
         return ContextRiskResult(
-            final_decision="ALLOW",
-            final_risk_score=0,
+            rule_block=False,
+            rule_score=0.0,
+            transformer_prob=0.0,
+            context_risk_score=0.0,
             final_risk_probability=0.0,
-            risk_level="SAFE",
+            decision="ALLOW",
+            explanation=explanation,
             summary="没有可扫描的上下文片段。",
             request_id=request_id,
         )
 
-    primary = max(chunk_results, key=lambda item: item.final_risk_probability)
-    hard_rule_block = any(item.rule_block for item in chunk_results)
-    state = decide_risk(primary.final_risk_probability, rule_block=hard_rule_block)
+    rule_blockers = [item for item in chunk_results if item.rule_block]
+    if rule_blockers:
+        primary = max(rule_blockers, key=lambda item: item.rule_score)
+    else:
+        primary = max(chunk_results, key=lambda item: item.final_risk_probability)
+
+    rule_block = bool(rule_blockers)
+    max_rule_score = max(item.rule_score for item in chunk_results)
+    max_transformer_prob = max(item.transformer_prob for item in chunk_results)
+    final_probability = max(item.final_risk_probability for item in chunk_results)
+    state = decide_risk(final_probability, rule_block=rule_block)
     risky_chunks = [item for item in chunk_results if item.decision != "ALLOW"]
 
-    if not risky_chunks:
-        summary = "上下文中未发现明显 Prompt Injection、间接注入或工具调用劫持风险。"
-    else:
-        attacks = _unique([attack for item in risky_chunks for attack in item.attack_types])
-        attack_text = "、".join(ATTACK_NAMES.get(item, item) for item in attacks[:4]) or "语义注入"
-        summary = (
+    summary = (
+        "上下文中未发现需要告警的 Prompt Injection 风险。"
+        if not risky_chunks
+        else (
             f"检测到 {len(risky_chunks)} 个风险片段，主要风险来自 "
-            f"{primary.context_role} / {primary.chunk_id}，风险类型：{attack_text}。"
+            f"{primary.context_role} / {primary.chunk_id}。"
         )
-
+    )
     return ContextRiskResult(
-        final_decision=str(state["decision"]),
-        final_risk_score=int(state["risk_score"]),
+        rule_block=rule_block,
+        rule_score=max_rule_score,
+        transformer_prob=max_transformer_prob,
+        context_risk_score=primary.context_risk_score,
         final_risk_probability=float(state["risk_probability"]),
-        risk_level=str(state["risk_level"]),
+        decision=str(state["decision"]),
+        explanation=SignalExplanation(
+            rule_signal=(
+                f"{len(rule_blockers)} 个片段触发硬阻断；最大 rule_score={max_rule_score:.3f}。"
+                if rule_blockers
+                else f"没有片段触发硬阻断；最大 rule_score={max_rule_score:.3f}。"
+            ),
+            semantic_signal=f"所有片段最大 transformer_prob={max_transformer_prob:.3f}。",
+            context_signal=(
+                f"主要风险片段 context_risk_score={primary.context_risk_score:.3f}，"
+                f"来源角色为 {primary.context_role}。"
+            ),
+        ),
         summary=summary,
         primary_risk_chunk_id=primary.chunk_id,
         primary_context_role=primary.context_role,
         primary_risk_source=primary.context_role,
         risky_chunk_count=len(risky_chunks),
         chunk_results=chunk_results,
-        safe_chunks=[item.chunk_id for item in chunk_results if item.decision == "ALLOW"],
-        blocked_chunks=[item.chunk_id for item in chunk_results if item.decision == "BLOCK"],
         request_id=request_id,
-        decision_source="hard_rule" if hard_rule_block else "aggregate",
     )
